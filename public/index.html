@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Spinner Wheel</title>
+  <style>
+    /* Your CSS for the spinner wheel */
+  </style>
+</head>
+<body>
+  <div id="login">
+    <input type="text" id="username" placeholder="Username">
+    <input type="text" id="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+  </div>
+  <div id="spinner">Spinner Wheel</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.2.8/mqtt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <script>
+    let accessToken = '';
+
+    async function login() {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const response = await fetch('http://127.0.0.1:3000/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await response.json();
+      accessToken = data.accessToken;
+      document.getElementById('login').style.display = 'none';
+      initializeSpinner();
+    }
+
+    async function getEncryptionKey() {
+      const response = await fetch('http://127.0.0.1:3000/get-key', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+      const data = await response.json();
+      return data.key;
+    }
+
+    async function initializeSpinner() {
+      const encryptionKey = await getEncryptionKey();
+
+      function decrypt(encryptedText) {
+        const parts = encryptedText.split(':');
+        const iv = CryptoJS.enc.Hex.parse(parts[0]);
+        const encryptedMessage = CryptoJS.enc.Hex.parse(parts[1]);
+        const key = CryptoJS.enc.Hex.parse(encryptionKey);
+        const decrypted = CryptoJS.AES.decrypt(
+          { ciphertext: encryptedMessage },
+          key,
+          { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+        );
+        return decrypted.toString(CryptoJS.enc.Utf8);
+      }
+
+      const client = mqtt.connect('ws://test.mosquitto.org:8080');
+
+      client.on('connect', () => {
+        console.log('Connected to broker');
+        client.subscribe('spinner/wheel', (err) => {
+          if (!err) {
+            console.log('Subscribed to topic');
+          }
+        });
+      });
+
+      client.on('message', (topic, message) => {
+        if (topic === 'spinner/wheel') {
+          const decryptedMessage = decrypt(message.toString());
+          const data = JSON.parse(decryptedMessage);
+          console.log('Decrypted message received:', data);
+          // Update the spinner wheel based on the received data
+          updateSpinner(data);
+        }
+      });
+
+      function updateSpinner(data) {
+        const spinner = document.getElementById('spinner');
+        spinner.style.transform = `rotate(${data.value}deg)`;
+      }
+    }
+  </script>
+</body>
+</html>
